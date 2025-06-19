@@ -5,6 +5,7 @@ import time
 import random
 from collections import namedtuple
 
+import numpy as np
 class UR5Robotiq85:
     def __init__(self, pos, ori):
         """
@@ -119,6 +120,28 @@ def update_simulation(steps, sleep_time=0.01):
         p.stepSimulation()
         time.sleep(sleep_time)
 
+def _capture_image_from_pose(position, orientation, width=320, height=240,
+                             fov=60, near=0.01, far=3.0):
+    """Capture an RGB and depth image from a given camera pose."""
+    rot_matrix = p.getMatrixFromQuaternion(orientation)
+    forward = [rot_matrix[2], rot_matrix[5], rot_matrix[8]]
+    up = [rot_matrix[1], rot_matrix[4], rot_matrix[7]]
+    target = [position[i] + forward[i] * 0.1 for i in range(3)]
+    view_matrix = p.computeViewMatrix(position, target, up)
+    proj_matrix = p.computeProjectionMatrixFOV(fov, width / height, near, far)
+    _, _, rgb, depth, _ = p.getCameraImage(width, height, view_matrix, proj_matrix)
+    return rgb, depth
+
+def capture_arm_view(robot):
+    """Capture image from the robot base."""
+    pos, orn = p.getBasePositionAndOrientation(robot.id)
+    return _capture_image_from_pose(pos, orn)
+
+def capture_gripper_view(robot):
+    """Capture image from the end-effector link."""
+    pos, orn = p.getLinkState(robot.id, robot.eef_id)[:2]
+    return _capture_image_from_pose(pos, orn)
+
 def setup_simulation():
     """
     Set up the simulation environment and objects.
@@ -164,6 +187,12 @@ def move_and_grab_cube(robot, tray_pos, counter):
         cube_start_orn = p.getQuaternionFromEuler([0, 0, 0])  # Cube orientation
         cube_id = p.loadURDF("cube_small.urdf", cube_start_pos, cube_start_orn)
         random_color_cube(cube_id)  # Set a random color
+
+        # Capture images from the base and gripper views
+        arm_rgb, arm_depth = capture_arm_view(robot)
+        grip_rgb, grip_depth = capture_gripper_view(robot)
+        print("Arm camera image size:", len(arm_rgb), "Depth size:", len(arm_depth))
+        print("Gripper camera image size:", len(grip_rgb), "Depth size:", len(grip_depth))
 
         # Get the position and orientation (quaternion) of the end-effector
         eef_state = p.getLinkState(robot.id, robot.eef_id)
